@@ -751,6 +751,12 @@ class DPOTrainer(_BaseTrainer):
                 "WPO-style weighting is not implemented for 'aot' or 'aot_unpaired' because those losses sort "
                 "samples, which would misalign per-pair weights."
             )
+        if self.use_weighting and any(loss_type in {"aot_ssd", "aot_unpaired_ssd"} for loss_type in self.loss_types):
+            raise NotImplementedError(
+                "WPO-style weighting is not implemented for 'aot_ssd' or 'aot_unpaired_sdd' because those losses sort "
+                "samples, which would misalign per-pair weights."
+            )
+
         if "robust" in self.loss_types and not (0.0 <= self.label_smoothing < 0.5):
             logger.warning(
                 "The `label_smoothing` parameter should lie in [0.0, 0.5) for the 'robust' loss. You provided "
@@ -1461,6 +1467,65 @@ class DPOTrainer(_BaseTrainer):
                     - F.logsigmoid(-self.beta * delta) * self.label_smoothing
                 )
 
+            elif loss_type == "aot_ssd":
+
+                # preference margins
+                logratios = chosen_logps - rejected_logps
+                ref_logratios = ref_chosen_logps - ref_rejected_logps
+
+                # SSD test points (empirical support)
+                eta = torch.cat([
+                    logratios.detach(),
+                    ref_logratios.detach()
+                ])
+
+                # Ruszczynski SSD shortfall functions
+                policy_shortfall = F.relu(
+                    eta[:, None] - logratios[None, :]
+                ).mean(dim=1)
+
+                ref_shortfall = F.relu(
+                    eta[:, None] - ref_logratios[None, :]
+                ).mean(dim=1)
+
+                # SSD dominance margin
+                delta = ref_shortfall - policy_shortfall
+
+                # same AOT/DPO objective
+                per_sequence_loss = (
+                    -F.logsigmoid(self.beta * delta) * (1 - self.label_smoothing)
+                    -F.logsigmoid(-self.beta * delta) * self.label_smoothing
+                )
+
+            elif loss_type == "aot_unpaired_ssd":
+                # preference margins
+                logratios = chosen_logratios
+                ref_logratios = rejected_logratios
+
+                # SSD test points (empirical support)
+                eta = torch.cat([
+                    logratios.detach(),
+                    ref_logratios.detach()
+                ])
+
+                # Ruszczynski SSD shortfall functions
+                policy_shortfall = F.relu(
+                    eta[:, None] - logratios[None, :]
+                ).mean(dim=1)
+
+                ref_shortfall = F.relu(
+                    eta[:, None] - ref_logratios[None, :]
+                ).mean(dim=1)
+
+                # SSD dominance margin
+                delta = ref_shortfall - policy_shortfall
+
+                # same AOT/DPO objective
+                per_sequence_loss = (
+                    -F.logsigmoid(self.beta * delta) * (1 - self.label_smoothing)
+                    -F.logsigmoid(-self.beta * delta) * self.label_smoothing
+                )
+                
             elif loss_type == "apo_zero":
                 # Eqn (7) of the APO paper (https://huggingface.co/papers/2408.06266)
                 # Use this loss when you believe the chosen outputs are better than your model's default output
@@ -1508,7 +1573,7 @@ class DPOTrainer(_BaseTrainer):
             else:
                 raise ValueError(
                     f"Unknown loss type: {loss_type}. Should be one of ['sigmoid', 'hinge', 'ipo', 'exo_pair', "
-                    "'nca_pair', 'robust', 'bco_pair', 'sppo_hard', 'aot', 'aot_unpaired', 'apo_zero', 'apo_down', "
+                    "'nca_pair', 'robust', 'bco_pair', 'sppo_hard', 'aot', 'aot_unpaired', 'aot_ssd', 'aot_unpaired_ssd','apo_zero', 'apo_down', "
                     "'discopop', 'sft', 'sigmoid_norm']"
                 )
 
