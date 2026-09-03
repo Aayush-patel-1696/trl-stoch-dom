@@ -1476,8 +1476,8 @@ class DPOTrainer(_BaseTrainer):
                 # SSD test points (empirical support)
                 eta = torch.cat([
                     logratios.detach(),
-                    ref_logratios.detach()
-                ])
+                    ref_logratios.detach()],
+                dim=0)
 
                 # Ruszczynski SSD shortfall functions
                 policy_shortfall = F.relu(
@@ -1492,10 +1492,12 @@ class DPOTrainer(_BaseTrainer):
                 delta = ref_shortfall - policy_shortfall
 
                 # same AOT/DPO objective
-                per_sequence_loss = (
+                ssd_loss = (
                     -F.logsigmoid(self.beta * delta) * (1 - self.label_smoothing)
                     -F.logsigmoid(-self.beta * delta) * self.label_smoothing
                 )
+
+                per_sequence_loss = ssd_loss.mean()
 
             elif loss_type == "aot_unpaired_ssd":
                 # preference margins
