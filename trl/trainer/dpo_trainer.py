@@ -1489,13 +1489,8 @@ class DPOTrainer(_BaseTrainer):
                 ).mean(dim=1)
 
                 # SSD dominance margin
-                delta = ref_shortfall - policy_shortfall
-
-                # same AOT/DPO objective
-                ssd_loss = (
-                    -F.logsigmoid(self.beta * delta) * (1 - self.label_smoothing)
-                    -F.logsigmoid(-self.beta * delta) * self.label_smoothing
-                )
+                delta = (ref_shortfall - policy_shortfall)  # sum over test points to get a single margin per sequence
+                ssd_loss = F.relu(-delta)
 
                 per_sequence_loss = ssd_loss.mean()
 
